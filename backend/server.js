@@ -7,12 +7,23 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const BaileysBot = require('./baileysBot');
+const EmailBot = require('./emailBot');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Initialize BaileysBot instance
 const baileysBot = new BaileysBot();
+
+// Initialize EmailBot instance
+const emailBot = new EmailBot();
+// Attempt to initialize with environment variables
+emailBot.initialize({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  user: process.env.SMTP_USER,
+  pass: process.env.SMTP_PASS
+}).catch(err => console.log('⚠️ Email configuration not found or invalid. Email features may not work until configured.'));
 
 // Middleware
 app.use(cors());
@@ -208,6 +219,8 @@ const validateColumns = (columns) => {
   const firstNamePatterns = ['firstname', 'first_name', 'fname', 'first'];
   const lastNamePatterns = ['lastname', 'last_name', 'lname', 'last', 'surname'];
   const emailPatterns = ['email', 'e-mail', 'email_address', 'emailaddress'];
+  /*const emailPatterns = ['email', 'e-mail', 'email_address', 'emailaddress', 'mail'];*/
+  const subjectPatterns = ['subject', 'title', 'topic'];
   const messagePatterns = ['message', 'msg', 'text', 'content', 'body'];
   
   // Find matching columns
@@ -230,6 +243,10 @@ const validateColumns = (columns) => {
   const emailColumn = normalizedColumns.find(col => 
     emailPatterns.some(pattern => col.includes(pattern))
   );
+
+  const subjectColumn = normalizedColumns.find(col => 
+    subjectPatterns.some(pattern => col.includes(pattern))
+  );
   
   const messageColumn = normalizedColumns.find(col => 
     messagePatterns.some(pattern => col.includes(pattern))
@@ -250,6 +267,7 @@ const validateColumns = (columns) => {
       firstName: getOriginalColumn(firstNameColumn),
       lastName: getOriginalColumn(lastNameColumn),
       email: getOriginalColumn(emailColumn),
+      subject: getOriginalColumn(subjectColumn),
       message: getOriginalColumn(messageColumn),
     },
     allColumns: columns,
@@ -444,6 +462,103 @@ app.post('/api/send-messages', multiUpload, async (req, res) => {
     return res.status(500).json({ success: false, error: error.message || 'Server error' });
   }
 });
+
+
+// --- EMAIL ROUTES ---
+
+// Validate file for EMAIL
+app.post('/api/email/validate-file', multiUpload, async (req, res) => {
+    let filePath = null;
+    try {
+      const csvFile = req.files?.csvFile?.[0];
+      
+      if (!csvFile) {
+        return res.status(400).json({ success: false, error: 'No file uploaded' });
+      }
+  
+      filePath = csvFile.path;
+      const ext = path.extname(csvFile.originalname).toLowerCase().slice(1);
+      
+      if (ext !== 'csv' && ext !== 'xlsx' && ext !== 'xls') {
+        deleteFile(filePath);
+        return res.status(400).json({ success: false, error: 'Only CSV and Excel files allowed' });
+      }
+  
+      // Get column names
+      const columns = await getFileColumns(filePath, ext);
+      
+      // Validate columns for EMAIL
+      const normalizedColumns = columns.map(col => col.toLowerCase().trim());
+      const emailPatterns = ['email', 'e-mail', 'mail'];
+      const emailColumn = normalizedColumns.find(col => emailPatterns.some(p => col.includes(p)));
+      
+      // Get sample data
+       let sampleData = [];
+      try {
+        const allData = await parseFile(filePath, ext);
+        sampleData = allData.slice(0, 3);
+      } catch (e) {}
+
+      res.json({
+        success: true,
+        fileName: csvFile.originalname,
+        columns: columns,
+        hasEmailColumn: !!emailColumn,
+        sampleRows: sampleData.length,
+        sampleData: sampleData,
+        emailColumn: emailColumn ? columns[normalizedColumns.indexOf(emailColumn)] : null
+      });
+  
+    } catch (error) {
+      if (filePath) deleteFile(filePath);
+      console.error('❌ Error validating email file:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+
+// Send Bulk Emails
+app.post('/api/email/send-messages', multiUpload, async (req, res) => {
+    let filePath = null;
+    try {
+      const csvFile = req.files?.csvFile?.[0];
+      const { subject, htmlContent } = req.body;
+  
+      if (!csvFile || !subject || !htmlContent) {
+        return res.status(400).json({ success: false, error: 'Missing file, subject, or content' });
+      }
+  
+      filePath = csvFile.path;
+      const ext = path.extname(csvFile.originalname).toLowerCase().slice(1);
+      
+      // Parse file
+      const contacts = await parseFile(filePath, ext);
+      
+      // Send emails
+      const results = await emailBot.sendBulkEmails(contacts, subject, htmlContent);
+  
+      deleteFile(filePath);
+  
+      const successCount = results.filter(r => r.status === 'sent').length;
+      const failureCount = results.filter(r => r.status === 'failed').length;
+  
+      res.json({
+        success: true,
+        message: 'Emails processed',
+        statistics: {
+          total: results.length,
+          sent: successCount,
+          failed: failureCount
+        },
+        results
+      });
+  
+    } catch (error) {
+      if (filePath) deleteFile(filePath);
+      console.error('❌ Error in bulk email:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
 
 // Test endpoint to send a single message
 app.post('/api/send-test-message', async (req, res) => {

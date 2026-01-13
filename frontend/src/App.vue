@@ -43,6 +43,43 @@
       </div>
     </header>
 
+    <!-- Tabs -->
+    <div class="bg-white border-b border-gray-200">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <nav class="-mb-px flex space-x-8">
+          <button
+            @click="activeTab = 'whatsapp'"
+            :class="[
+              activeTab === 'whatsapp'
+                ? 'border-whatsapp-500 text-whatsapp-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+              'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center'
+            ]"
+          >
+            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.893 3.386"/>
+            </svg>
+            WhatsApp Marketing
+          </button>
+
+          <button
+            @click="activeTab = 'email'"
+            :class="[
+              activeTab === 'email'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+              'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center'
+            ]"
+          >
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            Email Marketing
+          </button>
+        </nav>
+      </div>
+    </div>
+
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -77,6 +114,18 @@
                 </div>
                 <p class="text-sm text-gray-500">CSV files only, up to 10MB</p>
               </div>
+
+               <!-- Subject Input (Email Only) -->
+              <div v-if="activeTab === 'email'" class="mb-6">
+                <label for="emailSubject" class="block text-sm font-medium text-gray-700 mb-1">Email Subject</label>
+                <input
+                  id="emailSubject"
+                  v-model="emailSubject"
+                  type="text"
+                  placeholder="Important Update: {{name}}"
+                  class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
               <!-- Custom Message Input -->
 <div class="mb-6">
   <label for="customMessage" class="block text-sm font-medium text-gray-700 mb-1">Custom Message</label>
@@ -89,8 +138,8 @@
   ></textarea>
   <p class="text-xs text-gray-500 mt-1">Use <code>{{name}}</code> as a placeholder for personalization.</p>
 </div>
-<!-- Image Upload -->
-<div class="mb-6">
+<!-- Image Upload (WhatsApp Only) -->
+<div v-if="activeTab === 'whatsapp'" class="mb-6">
   <label class="block text-sm font-medium text-gray-700 mb-1">Attach Image (optional)</label>
   <input 
     type="file" 
@@ -222,10 +271,19 @@
             </div>
 
             <!-- CSV Format Info -->
-            <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <div class="text-sm text-blue-800 space-y-1">
+            <!-- Format Info -->
+            <div class="mb-6 p-4 rounded-lg border" :class="activeTab === 'whatsapp' ? 'bg-blue-50 border-blue-200' : 'bg-yellow-50 border-yellow-200'">
+              <div v-if="activeTab === 'whatsapp'" class="text-sm text-blue-800 space-y-1">
+                <p class="font-bold mb-1">WhatsApp CSV Format:</p>
                 <p class="text-red-600">• Do Not Include country code in phone numbers (e.g., +911234567890)</p>
-                <p>• No headers required</p>
+                <p>• Required column: <code>number</code> or <code>mobile</code></p>
+                <p>• Optional: <code>name</code>, custom columns</p>
+              </div>
+              <div v-else class="text-sm text-yellow-800 space-y-1">
+                 <p class="font-bold mb-1">Email CSV Format:</p>
+                 <p>• Required column: <code>email</code></p>
+                 <p>• Optional: <code>name</code>, custom columns</p>
+                 <p>• <span class="font-medium">Note:</span> Emails are rate-limited to prevent spam (approx 1 every 3s).</p>
               </div>
             </div>
 
@@ -247,8 +305,8 @@
               </button>
             </div>
 
-            <!-- Connection Warning -->
-            <div v-if="!connectionStatus.connected" class="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+            <!-- Connection Warning (WhatsApp Only) -->
+            <div v-if="activeTab === 'whatsapp' && !connectionStatus.connected" class="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
               <div class="flex items-center space-x-2">
                 <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
@@ -362,8 +420,10 @@ export default {
   name: 'App',
   data() {
     return {
-        customMessage: '',
-selectedImage: null,
+      activeTab: 'whatsapp', // 'whatsapp' or 'email'
+      customMessage: '',
+      emailSubject: '',
+      selectedImage: null,
       selectedFile: null,
       isProcessing: false,
       isCheckingStatus: false,
@@ -440,7 +500,12 @@ selectedImage: null,
         const formData = new FormData()
         formData.append('csvFile', file)
         
-        const response = await axios.post('http://localhost:5000/api/validate-file', formData, {
+        // Choose endpoint based on active tab
+        const endpoint = this.activeTab === 'email' 
+          ? 'http://localhost:5000/api/email/validate-file'
+          : 'http://localhost:5000/api/validate-file'
+
+        const response = await axios.post(endpoint, formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
           }
@@ -508,8 +573,13 @@ selectedImage: null,
         return
       }
       
-      if (!this.connectionStatus.connected) {
+      if (this.activeTab === 'whatsapp' && !this.connectionStatus.connected) {
         alert('WhatsApp is not connected. Please scan the QR code in the backend terminal.')
+        return
+      }
+      
+      if (this.activeTab === 'email' && !this.emailSubject) {
+        alert('Please enter an email subject.')
         return
       }
       
@@ -520,16 +590,25 @@ selectedImage: null,
       
       try {
         const formData = new FormData();
-formData.append('csvFile', this.selectedFile);
-formData.append('customMessage', this.customMessage);
-if (this.selectedImage) {
-  formData.append('imageFile', this.selectedImage);
-}
+        formData.append('csvFile', this.selectedFile);
+
+        let endpoint;
+        if (this.activeTab === 'email') {
+           formData.append('subject', this.emailSubject);
+           formData.append('htmlContent', this.customMessage);
+           endpoint = 'http://localhost:5000/api/email/send-messages';
+        } else {
+           formData.append('customMessage', this.customMessage);
+           if (this.selectedImage) {
+              formData.append('imageFile', this.selectedImage);
+           }
+           endpoint = 'http://localhost:5000/api/send-messages';
+        }
         
         this.progressPercentage = 30
-        this.progressMessage = 'Processing CSV file...'
+        this.progressMessage = 'Processing file...'
         
-        const response = await axios.post('http://localhost:5000/api/send-messages', formData, {
+        const response = await axios.post(endpoint, formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
           },
