@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Auth/Session files (IMPORTANT: Keep these secure!)
+auth_info_baileys/
+
+# Uploaded files
+uploads/*.csv
+uploads/*.xlsx
+uploads/*.xls
+uploads/*.jpg
+uploads/*.png
+uploads/*.jpeg
+uploads/*.gif
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment variables
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Old Venom-Bot tokens (if migrating)
+tokens/
+
