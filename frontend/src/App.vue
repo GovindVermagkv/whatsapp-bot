@@ -583,6 +583,39 @@ export default {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
     },
     
+    // --- Helper for parsing CSV client-side ---
+    parseCSV(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target.result;
+          const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
+          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+          
+          const data = [];
+          for(let i=1; i<lines.length; i++) {
+            const currentLine = lines[i].split(',');
+            // skip invalid lines
+            if(currentLine.length < headers.length) continue;
+            
+            const obj = {};
+            for(let j=0; j<headers.length; j++) {
+               obj[headers[j]] = currentLine[j] ? currentLine[j].trim() : '';
+            }
+            // Basic validation: needs a number or phone
+            if (obj.number || obj.phone || obj.mobile) {
+               // Normalize key to 'number'
+               if(!obj.number) obj.number = obj.phone || obj.mobile;
+               data.push(obj);
+            }
+          }
+          resolve(data);
+        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsText(file);
+      });
+    },
+
     async sendMessages() {
       if (!this.selectedFile) {
         alert('Please select a CSV file first.')
@@ -598,13 +631,115 @@ export default {
         alert('Please enter an email subject.')
         return
       }
+
+      // If it's an Excel file or Email tab, fall back to old method (single upload)
+      // Because we only implemented client-side parsing for CSV+WhatsApp for now
+      if (this.selectedFile.name.endsWith('.xlsx') || this.activeTab === 'email') {
+         if (this.activeTab === 'whatsapp') {
+            const proceed = confirm('Warning: Excel files are uploaded in one go and might time out if you have >50 contacts. Convert to CSV for safer batch sending. Proceed anyway?');
+            if (!proceed) return;
+         }
+         return this.sendMessagesLegacy();
+      }
       
       this.isProcessing = true
       this.clearResults()
-      this.progressPercentage = 10
-      this.progressMessage = 'Uploading file...'
+      this.progressPercentage = 5
+      this.progressMessage = 'Parsing file...'
       
       try {
+        // 1. Parse CSV Client Side
+        const contacts = await this.parseCSV(this.selectedFile);
+        
+        if (contacts.length === 0) {
+          throw new Error('No valid contacts found in CSV');
+        }
+
+        // 2. Prepare for batching
+        const BATCH_SIZE = 20; // Send 20 contacts at a time
+        const totalBatches = Math.ceil(contacts.length / BATCH_SIZE);
+        
+        this.progressMessage = `Starting batch process (${contacts.length} contacts)...`;
+        
+        // 3. Loop through batches
+        for (let i = 0; i < totalBatches; i++) {
+           const start = i * BATCH_SIZE;
+           const end = start + BATCH_SIZE;
+           const batch = contacts.slice(start, end);
+           
+           // Apply custom message to each contact in batch (if not already in CSV)
+           batch.forEach(c => {
+              if (!c.message) c.message = this.customMessage || '';
+           });
+
+           this.progressPercentage = Math.round(((i) / totalBatches) * 100);
+           this.progressMessage = `Sending batch ${i+1}/${totalBatches} (${batch.length} contacts)...`;
+
+           // Create FormData for this batch
+           const formData = new FormData();
+           formData.append('contacts', JSON.stringify(batch)); // Helper to send JSON
+           if (this.selectedImage) {
+              formData.append('imageFile', this.selectedImage);
+           }
+
+           // Send batch
+           const response = await axios.post(`${API_URL}/api/send-batch-messages`, formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+           });
+
+           if (response.data.success) {
+              // Append results
+              this.results.push(...response.data.results);
+              this.statistics.total += response.data.statistics.total;
+              this.statistics.sent += response.data.statistics.sent;
+              this.statistics.failed += response.data.statistics.failed;
+           } else {
+              console.error(`Batch ${i+1} failed:`, response.data.error);
+              // Add dummy failed results for this batch
+               batch.forEach(c => this.results.push({ 
+                  number: c.number,
+                  status: 'failed',
+                  error: 'Batch failed: ' + response.data.error
+               }));
+               this.statistics.total += batch.length;
+               this.statistics.failed += batch.length;
+           }
+
+           // Wait a bit before next batch to let server cool down (optional but good for safety)
+           if (i < totalBatches - 1) {
+              this.progressMessage = `Waiting 5s before next batch...`;
+              await new Promise(resolve => setTimeout(resolve, 5000));
+           }
+        }
+
+        this.progressPercentage = 100;
+        this.progressMessage = 'Complete!';
+        const successCount = this.statistics.sent;
+        alert(`Process Complete!\n${successCount}/${this.statistics.total} messages sent.`);
+
+      } catch (error) {
+        console.error('Error in batch sending:', error);
+        alert('Error: ' + error.message);
+        this.progressPercentage = 0;
+      } finally {
+        this.isProcessing = false;
+        setTimeout(() => {
+           if(this.progressPercentage === 100) {
+             this.progressPercentage = 0;
+             this.progressMessage = '';
+           }
+        }, 3000);
+      }
+    },
+
+    // Legacy method for Email or Excel files
+    async sendMessagesLegacy() {
+       this.isProcessing = true
+       this.clearResults()
+       this.progressPercentage = 10
+       this.progressMessage = 'Uploading file (Legacy Mode)...'
+       
+       try {
         const formData = new FormData();
         formData.append('csvFile', this.selectedFile);
 
@@ -640,7 +775,6 @@ export default {
           this.progressPercentage = 100
           this.progressMessage = 'Complete!'
           
-          // Show success notification
           const successCount = this.statistics.sent
           const totalCount = this.statistics.total
           alert(`Messages sent successfully!\n${successCount}/${totalCount} messages delivered.`)
@@ -650,25 +784,19 @@ export default {
         
       } catch (error) {
         console.error('Error sending messages:', error)
-        
         let errorMessage = 'Failed to send messages. '
-        
         if (error.response) {
           errorMessage += error.response.data.error || error.response.statusText
         } else if (error.request) {
-          errorMessage += 'Cannot connect to server. Please make sure the backend is running.'
+          errorMessage += 'Cannot connect to server. Please set VITE_API_URL or check backend.'
         } else {
           errorMessage += error.message
         }
-        
         alert(errorMessage)
-        
         this.progressPercentage = 0
         this.progressMessage = ''
       } finally {
         this.isProcessing = false
-        
-        // Clear progress after a delay
         setTimeout(() => {
           this.progressPercentage = 0
           this.progressMessage = ''
