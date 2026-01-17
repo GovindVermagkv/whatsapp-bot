@@ -463,6 +463,52 @@ app.post('/api/send-messages', multiUpload, async (req, res) => {
   }
 });
 
+// Send Batch Messages (JSON payload)
+app.post('/api/send-batch-messages', multiUpload, async (req, res) => {
+  try {
+    const contacts = req.body.contacts ? JSON.parse(req.body.contacts) : [];
+    const imageFile = req.files?.imageFile?.[0];
+
+    if (!contacts || contacts.length === 0) {
+      return res.status(400).json({ success: false, error: 'No contacts provided in batch' });
+    }
+
+    const status = await baileysBot.getConnectionStatus();
+    if (!status.connected || !status.ready) {
+      return res.status(503).json({ success: false, error: 'WhatsApp not connected' });
+    }
+
+    const imagePath = imageFile ? imageFile.path : null;
+
+    // Use the JSON-based bulk sender
+    const results = await baileysBot.sendBulkMessagesFromJson(contacts, imagePath);
+
+    if (imagePath) deleteFile(imagePath);
+
+    const successCount = results.filter(r => r.status === 'sent').length;
+    const failureCount = results.filter(r => r.status === 'failed').length;
+    const invalidCount = results.filter(r => r.status === 'invalid').length;
+
+    return res.json({
+      success: true,
+      message: 'Batch processed successfully',
+      statistics: {
+        total: results.length,
+        sent: successCount,
+        failed: failureCount,
+        invalid: invalidCount
+      },
+      results
+    });
+
+  } catch (error) {
+    // Clean up if image was uploaded but error occurred
+    if (req.files?.imageFile?.[0]?.path) deleteFile(req.files.imageFile[0].path);
+    
+    return res.status(500).json({ success: false, error: error.message || 'Server error' });
+  }
+});
+
 
 // --- EMAIL ROUTES ---
 

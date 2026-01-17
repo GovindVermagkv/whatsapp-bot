@@ -469,6 +469,104 @@ class BaileysBot {
   }
 
   /**
+   * Send bulk messages from JSON data (array of objects)
+   * 
+   * @param {Array} contacts - Array of contact objects {number, name, message}
+   * @param {string} imagePath - Optional image path
+   * @param {number} delayMs - Delay between messages in milliseconds (default: 3000-5000)
+   * @returns {Promise<Array>} - Array of results for each message
+   */
+  async sendBulkMessagesFromJson(contacts, imagePath = null, delayMs = null) {
+    if (!this.sock || !this.isReady) {
+      throw new Error('WhatsApp not connected. Please connect first.');
+    }
+
+    try {
+      if (!contacts || contacts.length === 0) {
+        throw new Error('No contacts provided');
+      }
+
+      console.log(`📤 Starting bulk message send to ${contacts.length} contacts (JSON Batch)`);
+      if (imagePath) {
+        console.log(`📷 Image attachment: ${imagePath}`);
+      }
+
+      const results = [];
+      const minDelay = delayMs || 3000; // Default 3 seconds
+      const maxDelay = delayMs || 5000; // Default 5 seconds
+
+      for (let i = 0; i < contacts.length; i++) {
+        const contact = contacts[i];
+        const { number, message, name } = contact;
+
+        console.log(`\n📱 [${i + 1}/${contacts.length}] Sending to ${number}${name ? ` (${name})` : ''}`);
+
+        try {
+          // Send message
+          const result = await this.sendMessage(number, message, imagePath);
+          
+          // Categorize result
+          let status = 'sent';
+          if (!result.success) {
+            if (result.error && (
+              result.error.includes('not registered') || 
+              result.error.includes('not-a-whatsapp-number')
+            )) {
+              status = 'invalid';
+            } else {
+              status = 'failed';
+            }
+          }
+
+          results.push({
+            number,
+            name: name || '',
+            message,
+            status,
+            error: result.error || null,
+            messageId: result.messageId || null,
+            timestamp: result.timestamp,
+          });
+
+          // Log result
+          if (status === 'sent') {
+            console.log(`✅ Message sent successfully`);
+          } else if (status === 'invalid') {
+            console.log(`⚠️ Invalid number - skipped`);
+          } else {
+            console.log(`❌ Failed: ${result.error}`);
+          }
+
+        } catch (error) {
+          console.error(`❌ Error processing ${number}:`, error.message);
+          results.push({
+            number,
+            name: name || '',
+            message,
+            status: 'failed',
+            error: error.message,
+            messageId: null,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // Rate limiting - delay between messages (except for last message)
+        if (i < contacts.length - 1) {
+          const delay = delayMs || (minDelay + Math.random() * (maxDelay - minDelay));
+          const delaySeconds = (delay / 1000).toFixed(1);
+          console.log(`⏳ Waiting ${delaySeconds}s before next message...`);
+          await this.sleep(delay);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      console.error('❌ Error in bulk messaging:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Send bulk messages from Excel file
    * Reads Excel, personalizes messages, and sends with rate limiting
    * 
