@@ -305,18 +305,31 @@
               </button>
             </div>
 
-            <!-- Connection Warning (WhatsApp Only) -->
+            <!-- Connection Warning & QR Code (WhatsApp Only) -->
             <div v-if="activeTab === 'whatsapp' && !connectionStatus.connected" class="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
-              <div class="flex items-center space-x-2">
+              <div class="flex items-center space-x-2 mb-2">
                 <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
                 <p class="text-red-800 font-medium">WhatsApp not connected</p>
               </div>
-              <p class="text-red-700 text-sm mt-1">Please scan the QR code in the backend terminal to connect WhatsApp Web.</p>
+              
+              <div v-if="connectionStatus.qr" class="flex flex-col items-center justify-center p-4 bg-white rounded-lg border border-gray-200 mt-2">
+                <p class="text-gray-600 mb-2 font-medium">Scan this QR Code with WhatsApp:</p>
+                <!-- Use public QR API to render the QR string safely -->
+                <img 
+                  :src="`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(connectionStatus.qr)}`" 
+                  alt="WhatsApp QR Code" 
+                  class="w-48 h-48 border-2 border-gray-100 rounded-lg mb-2"
+                />
+                <p class="text-xs text-gray-500 mt-2">Open WhatsApp > Three Dots > Linked Devices > Link a Device</p>
+              </div>
+              <p v-else class="text-red-700 text-sm mt-1">
+                Waiting for QR code... The server might be restarting or generating a new code.
+              </p>
+            </div>
             </div>
           </div>
-        </div>
 
         <!-- Status & Results Section -->
         <div class="lg:col-span-1">
@@ -435,15 +448,14 @@ export default {
       },
       connectionStatus: {
         connected: false,
-        ready: false
+        ready: false,
+        qr: null
       },
       progressPercentage: 0,
       progressMessage: '',
       fileValidation: null,
       isValidatingFile: false
     }
-  
-
   },
   
   mounted() {

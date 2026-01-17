@@ -45,6 +45,7 @@ class BaileysBot {
     this.isConnecting = false;
     this.authDir = path.join(__dirname, 'auth_info_baileys');
     this.connectionState = 'disconnected';
+    this.qr = null; // Store QR code
     
     // Ensure auth directory exists
     if (!fs.existsSync(this.authDir)) {
@@ -138,7 +139,8 @@ class BaileysBot {
         }
 
         if (qr) {
-          // QR code generated - display in terminal
+          // QR code generated - store it and display in terminal
+          this.qr = qr;
           try {
             const qrcode = require('qrcode-terminal');
             console.log('\n📱 Scan the QR code below with your WhatsApp:');
@@ -168,11 +170,28 @@ class BaileysBot {
             // Retry connection after 3 seconds
             setTimeout(() => this.connectWhatsApp(), 3000);
           } else {
-            console.log('❌ Logged out. Please delete auth_info_baileys folder and restart.');
+            console.log('❌ Logged out or fatal error:', lastDisconnect?.error?.message);
+            
+            // Auto-recovery logic
+            console.log('🔄 Auto-recovering: Deleting auth data and restarting...');
+            try {
+              // specific error check for Stream Errored - this often requires re-auth
+              if (fs.existsSync(this.authDir)) {
+                fs.rmSync(this.authDir, { recursive: true, force: true });
+                console.log('🗑️ Deleted auth directory.');
+              }
+            } catch (err) {
+              console.error('⚠️ Failed to delete auth directory:', err);
+            }
+
             this.isReady = false;
-            this.connectionState = 'logged_out';
+            this.connectionState = 'disconnected';
             this.sock = null;
             this.isConnecting = false;
+            
+            // Reconnect immediately to generate new QR
+            console.log('🚀 Restarting connection process...');
+            setTimeout(() => this.connectWhatsApp(), 1000);
           }
         } else if (connection === 'open') {
           // Connection successful
@@ -180,6 +199,7 @@ class BaileysBot {
           this.isReady = true;
           this.connectionState = 'connected';
           this.isConnecting = false;
+          this.qr = null; // Clear QR code on success
         } else if (connection === 'connecting') {
           if (this.connectionState !== 'connecting') {
             console.log('⏳ Connecting to WhatsApp...');
@@ -600,7 +620,8 @@ class BaileysBot {
         connected: isConnected,
         ready: isConnected,
         state: this.connectionState,
-        wapiReady: isConnected
+        wapiReady: isConnected,
+        qr: this.qr // Expose QR code
       };
     } catch (error) {
       return {
