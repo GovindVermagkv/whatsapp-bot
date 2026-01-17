@@ -429,6 +429,10 @@
 <script>
 import axios from 'axios'
 
+// Configure API base URL
+// Use VITE_API_URL environment variable if set, otherwise default to production URL
+const API_URL = import.meta.env.VITE_API_URL || 'https://whatsapp-bot-zwo6.onrender.com';
+
 export default {
   name: 'App',
   data() {
@@ -468,7 +472,7 @@ export default {
     async checkConnectionStatus() {
       this.isCheckingStatus = true
       try {
-        const response = await axios.get('http://localhost:5000/api/status')
+        const response = await axios.get(`${API_URL}/api/status`)
         this.connectionStatus = response.data
       } catch (error) {
         console.error('Error checking connection status:', error)
@@ -514,8 +518,8 @@ export default {
         
         // Choose endpoint based on active tab
         const endpoint = this.activeTab === 'email' 
-          ? 'http://localhost:5000/api/email/validate-file'
-          : 'http://localhost:5000/api/validate-file'
+          ? `${API_URL}/api/email/validate-file`
+          : `${API_URL}/api/validate-file`
 
         const response = await axios.post(endpoint, formData, {
           headers: {
@@ -608,13 +612,13 @@ export default {
         if (this.activeTab === 'email') {
            formData.append('subject', this.emailSubject);
            formData.append('htmlContent', this.customMessage);
-           endpoint = 'http://localhost:5000/api/email/send-messages';
+           endpoint = `${API_URL}/api/email/send-messages`;
         } else {
            formData.append('customMessage', this.customMessage);
            if (this.selectedImage) {
               formData.append('imageFile', this.selectedImage);
            }
-           endpoint = 'http://localhost:5000/api/send-messages';
+           endpoint = `${API_URL}/api/send-messages`;
         }
         
         this.progressPercentage = 30
