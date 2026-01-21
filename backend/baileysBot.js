@@ -46,6 +46,7 @@ class BaileysBot {
     this.authDir = path.join(__dirname, 'auth_info_baileys');
     this.connectionState = 'disconnected';
     this.qr = null; // Store QR code
+    this.isStopRequested = false; // Flag to stop bulk sending
     
     // Ensure auth directory exists
     if (!fs.existsSync(this.authDir)) {
@@ -469,11 +470,26 @@ class BaileysBot {
   }
 
   /**
+   * Stop any ongoing bulk send operation
+   */
+  stopBulkSend() {
+    console.log('🛑 Stop requested for bulk send operation');
+    this.isStopRequested = true;
+  }
+
+  /**
+   * Reset stop flag
+   */
+  resetStopFlag() {
+    this.isStopRequested = false;
+  }
+
+  /**
    * Send bulk messages from JSON data (array of objects)
    * 
    * @param {Array} contacts - Array of contact objects {number, name, message}
    * @param {string} imagePath - Optional image path
-   * @param {number} delayMs - Delay between messages in milliseconds (default: 3000-5000)
+   * @param {number} delayMs - Delay between messages in milliseconds (default: randomized 10-30s)
    * @returns {Promise<Array>} - Array of results for each message
    */
   async sendBulkMessagesFromJson(contacts, imagePath = null, delayMs = null) {
@@ -491,11 +507,24 @@ class BaileysBot {
         console.log(`📷 Image attachment: ${imagePath}`);
       }
 
+      // Reset stop flag at start
+      this.resetStopFlag();
+
       const results = [];
-      const minDelay = delayMs || 3000; // Default 3 seconds
-      const maxDelay = delayMs || 5000; // Default 5 seconds
+      const minDelay = 10000; // 10 seconds
+      const maxDelay = 30000; // 30 seconds
+      
+      // Randomize pause interval (every 5-10 messages)
+      let nextLongPauseIndex = Math.floor(Math.random() * 6) + 5;
+      let messagesSinceLastPause = 0;
 
       for (let i = 0; i < contacts.length; i++) {
+        // Check for stop request
+        if (this.isStopRequested) {
+          console.log('🛑 Bulk send stopped by user request.');
+          break;
+        }
+
         const contact = contacts[i];
         const { number, message, name } = contact;
 
@@ -550,12 +579,37 @@ class BaileysBot {
           });
         }
 
-        // Rate limiting - delay between messages (except for last message)
+        // Rate limiting logic
         if (i < contacts.length - 1) {
-          const delay = delayMs || (minDelay + Math.random() * (maxDelay - minDelay));
-          const delaySeconds = (delay / 1000).toFixed(1);
-          console.log(`⏳ Waiting ${delaySeconds}s before next message...`);
-          await this.sleep(delay);
+          // Check for long pause
+          messagesSinceLastPause++;
+          
+          if (messagesSinceLastPause >= nextLongPauseIndex) {
+            // Take a long break (2-5 minutes)
+            const pauseDuration = Math.floor(Math.random() * (300000 - 120000 + 1)) + 120000;
+            const pauseMinutes = (pauseDuration / 60000).toFixed(1);
+            
+            console.log(`\n☕ Taking a long break for ${pauseMinutes} minutes (${Math.round(pauseDuration/1000)}s) to avoid detection...`);
+            console.log(`   (Next break after random 5-10 messages)`);
+            
+            // Check stop flag during long pause occasionally
+            const pauseSteps = 10;
+            const stepDuration = pauseDuration / pauseSteps;
+            for (let step = 0; step < pauseSteps; step++) {
+              if (this.isStopRequested) break;
+              await this.sleep(stepDuration);
+            }
+            
+            // Reset counters
+            messagesSinceLastPause = 0;
+            nextLongPauseIndex = Math.floor(Math.random() * 6) + 5;
+          } else {
+            // Normal delay (10-30s)
+            const delay = delayMs || (Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay);
+            const delaySeconds = (delay / 1000).toFixed(1);
+            console.log(`⏳ Waiting ${delaySeconds}s before next message...`);
+            await this.sleep(delay);
+          }
         }
       }
 
@@ -573,7 +627,7 @@ class BaileysBot {
    * @param {string} filePath - Path to Excel file
    * @param {string} customMessage - Optional custom message template
    * @param {string} imagePath - Optional image path
-   * @param {number} delayMs - Delay between messages in milliseconds (default: 3000-5000)
+   * @param {number} delayMs - Delay between messages in milliseconds
    * @returns {Promise<Array>} - Array of results for each message
    */
   async sendBulkMessagesFromExcel(filePath, customMessage = '', imagePath = null, delayMs = null) {
@@ -589,92 +643,9 @@ class BaileysBot {
         throw new Error('No valid contacts found in Excel file');
       }
 
-      console.log(`📤 Starting bulk message send to ${contacts.length} contacts`);
-      if (imagePath) {
-        console.log(`📷 Image attachment: ${imagePath}`);
-      }
-
-      const results = [];
-      const minDelay = delayMs || 3000; // Default 3 seconds
-      const maxDelay = delayMs || 5000; // Default 5 seconds
-
-      for (let i = 0; i < contacts.length; i++) {
-        const contact = contacts[i];
-        const { number, message } = contact;
-
-        console.log(`\n📱 [${i + 1}/${contacts.length}] Sending to ${number}${contact.name ? ` (${contact.name})` : ''}`);
-
-        try {
-          // Send message
-          const result = await this.sendMessage(number, message, imagePath);
-          
-          // Categorize result
-          let status = 'sent';
-          if (!result.success) {
-            if (result.error && (
-              result.error.includes('not registered') || 
-              result.error.includes('not-a-whatsapp-number')
-            )) {
-              status = 'invalid';
-            } else {
-              status = 'failed';
-            }
-          }
-
-          results.push({
-            number,
-            name: contact.name || '',
-            message,
-            status,
-            error: result.error || null,
-            messageId: result.messageId || null,
-            timestamp: result.timestamp,
-          });
-
-          // Log result
-          if (status === 'sent') {
-            console.log(`✅ Message sent successfully`);
-          } else if (status === 'invalid') {
-            console.log(`⚠️ Invalid number - skipped`);
-          } else {
-            console.log(`❌ Failed: ${result.error}`);
-          }
-
-        } catch (error) {
-          console.error(`❌ Error processing ${number}:`, error.message);
-          results.push({
-            number,
-            name: contact.name || '',
-            message,
-            status: 'failed',
-            error: error.message,
-            messageId: null,
-            timestamp: new Date().toISOString(),
-          });
-        }
-
-        // Rate limiting - delay between messages (except for last message)
-        if (i < contacts.length - 1) {
-          const delay = delayMs || (minDelay + Math.random() * (maxDelay - minDelay));
-          const delaySeconds = (delay / 1000).toFixed(1);
-          console.log(`⏳ Waiting ${delaySeconds}s before next message...`);
-          await this.sleep(delay);
-        }
-      }
-
-      // Summary
-      const sentCount = results.filter(r => r.status === 'sent').length;
-      const failedCount = results.filter(r => r.status === 'failed').length;
-      const invalidCount = results.filter(r => r.status === 'invalid').length;
-
-      console.log(`\n✅ Bulk messaging completed!`);
-      console.log(`📊 Summary:`);
-      console.log(`   ✅ Sent: ${sentCount}`);
-      console.log(`   ❌ Failed: ${failedCount}`);
-      console.log(`   ⚠️ Invalid: ${invalidCount}`);
-      console.log(`   total: ${results.length}`);
-
-      return results;
+      // Convert to format expected by sendBulkMessagesFromJson and reuse logic
+      // This avoids duplicating the complex anti-detection logic
+      return await this.sendBulkMessagesFromJson(contacts, imagePath, delayMs);
     } catch (error) {
       console.error('❌ Error in bulk messaging:', error);
       throw error;
