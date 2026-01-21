@@ -287,12 +287,12 @@
               </div>
             </div>
 
-            <!-- Send Button -->
-            <div class="flex justify-center">
+            <!-- Send Controls -->
+            <div class="flex justify-center space-x-4">
               <button 
                 @click="sendMessages"
                 :disabled="!selectedFile || isProcessing || !connectionStatus.connected"
-                class="btn-primary px-8 py-3 text-lg flex items-center space-x-2"
+                class="btn-primary px-8 py-3 text-lg flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg v-if="isProcessing" class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -301,7 +301,18 @@
                 <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
-                <span>{{ isProcessing ? 'Sending Messages...' : 'Send Messages' }}</span>
+                <span>{{ isProcessing ? 'Sending...' : 'Send Messages' }}</span>
+              </button>
+
+              <button 
+                v-if="isProcessing"
+                @click="stopSending"
+                class="bg-red-600 hover:bg-red-700 text-white px-8 py-3 text-lg rounded-lg flex items-center space-x-2 transition-colors shadow-sm"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span>Stop</span>
               </button>
             </div>
 
@@ -458,7 +469,8 @@ export default {
       progressPercentage: 0,
       progressMessage: '',
       fileValidation: null,
-      isValidatingFile: false
+      isValidatingFile: false,
+      stopRequested: false
     }
   },
   
@@ -632,8 +644,7 @@ export default {
         return
       }
 
-      // If it's an Excel file or Email tab, fall back to old method (single upload)
-      // Because we only implemented client-side parsing for CSV+WhatsApp for now
+      // Legacy support check
       if (this.selectedFile.name.endsWith('.xlsx') || this.activeTab === 'email') {
          if (this.activeTab === 'whatsapp') {
             const proceed = confirm('Warning: Excel files are uploaded in one go and might time out if you have >50 contacts. Convert to CSV for safer batch sending. Proceed anyway?');
@@ -643,6 +654,7 @@ export default {
       }
       
       this.isProcessing = true
+      this.stopRequested = false; // Reset stop flag
       this.clearResults()
       this.progressPercentage = 5
       this.progressMessage = 'Parsing file...'
@@ -663,11 +675,17 @@ export default {
         
         // 3. Loop through batches
         for (let i = 0; i < totalBatches; i++) {
+           // Check for stop request
+           if (this.stopRequested) {
+             this.progressMessage = 'Stopped by user.';
+             break;
+           }
+
            const start = i * BATCH_SIZE;
            const end = start + BATCH_SIZE;
            const batch = contacts.slice(start, end);
            
-           // Apply custom message to each contact in batch (if not already in CSV)
+           // Apply custom message
            batch.forEach(c => {
               if (!c.message) c.message = this.customMessage || '';
            });
@@ -675,9 +693,9 @@ export default {
            this.progressPercentage = Math.round(((i) / totalBatches) * 100);
            this.progressMessage = `Sending batch ${i+1}/${totalBatches} (${batch.length} contacts)...`;
 
-           // Create FormData for this batch
+           // Create FormData
            const formData = new FormData();
-           formData.append('contacts', JSON.stringify(batch)); // Helper to send JSON
+           formData.append('contacts', JSON.stringify(batch)); 
            if (this.selectedImage) {
               formData.append('imageFile', this.selectedImage);
            }
@@ -688,34 +706,46 @@ export default {
            });
 
            if (response.data.success) {
-              // Append results
               this.results.push(...response.data.results);
               this.statistics.total += response.data.statistics.total;
               this.statistics.sent += response.data.statistics.sent;
               this.statistics.failed += response.data.statistics.failed;
            } else {
               console.error(`Batch ${i+1} failed:`, response.data.error);
-              // Add dummy failed results for this batch
-               batch.forEach(c => this.results.push({ 
-                  number: c.number,
-                  status: 'failed',
-                  error: 'Batch failed: ' + response.data.error
-               }));
-               this.statistics.total += batch.length;
-               this.statistics.failed += batch.length;
+              batch.forEach(c => this.results.push({ 
+                 number: c.number,
+                 status: 'failed',
+                 error: 'Batch failed: ' + response.data.error
+              }));
+              this.statistics.total += batch.length;
+              this.statistics.failed += batch.length;
            }
 
-           // Wait a bit before next batch to let server cool down (optional but good for safety)
+           // Wait between batches
            if (i < totalBatches - 1) {
+              // Check stop request before waiting
+              if (this.stopRequested) {
+                 this.progressMessage = 'Stopped by user.';
+                 break;
+              }
+
               this.progressMessage = `Waiting 5s before next batch...`;
-              await new Promise(resolve => setTimeout(resolve, 5000));
+              
+              // Allow breaking wait loop if stopped
+              for(let w=0; w<5; w++) {
+                 if(this.stopRequested) break;
+                 await new Promise(r => setTimeout(r, 1000));
+              }
            }
         }
 
-        this.progressPercentage = 100;
-        this.progressMessage = 'Complete!';
-        const successCount = this.statistics.sent;
-        alert(`Process Complete!\n${successCount}/${this.statistics.total} messages sent.`);
+        if (this.stopRequested) {
+           alert('Process stopped by user.');
+        } else {
+           this.progressPercentage = 100;
+           this.progressMessage = 'Complete!';
+           alert(`Process Complete!\n${this.statistics.sent}/${this.statistics.total} messages sent.`);
+        }
 
       } catch (error) {
         console.error('Error in batch sending:', error);
@@ -723,12 +753,27 @@ export default {
         this.progressPercentage = 0;
       } finally {
         this.isProcessing = false;
+        this.stopRequested = false;
         setTimeout(() => {
-           if(this.progressPercentage === 100) {
+           if(this.progressPercentage === 100 || this.progressMessage.includes('Stopped')) {
              this.progressPercentage = 0;
              this.progressMessage = '';
            }
         }, 3000);
+      }
+    },
+
+    async stopSending() {
+      if (!confirm('Are you sure you want to stop sending?')) return;
+      
+      this.stopRequested = true;
+      this.progressMessage = 'Stopping...';
+      
+      try {
+        // Notify backend to stop current batch
+        await axios.post(`${API_URL}/api/stop-sending`);
+      } catch (e) {
+        console.error('Failed to notify backend of stop:', e);
       }
     },
 
